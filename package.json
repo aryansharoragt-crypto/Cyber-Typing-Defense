@@ -1,0 +1,23 @@
+{
+  "name": "cyber-typing-defense",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:client\" \"npm:dev:server\"",
+    "dev:client": "vite --host 0.0.0.0",
+    "dev:server": "node --watch server.js",
+    "build": "vite build",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-router-dom": "^7.8.2"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "vite": "^7.1.4"
+  }
+}
