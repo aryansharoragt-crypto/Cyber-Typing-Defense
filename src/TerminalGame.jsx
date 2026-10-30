@@ -1,4 +1,3 @@
-// src/TerminalGame.jsx
 import React, { useState, useEffect, useRef } from 'react';
 
 const WORD_DICTIONARY = [
@@ -19,19 +18,37 @@ export default function TerminalGame() {
   const [credits, setCredits] = useState(0);
   const [maxHealth, setMaxHealth] = useState(100);
   const [scoreMultiplier, setScoreMultiplier] = useState(1);
+  const [hasShield, setHasShield] = useState(false);
+  const [isSloMoActive, setIsSloMoActive] = useState(false);
+  const [hasAutoTurret, setHasAutoTurret] = useState(false);
 
   const canvasRef = useRef(null);
   const enemiesRef = useRef([]);
   const requestRef = useRef(null);
 
-  
-  // Use refs to keep track of latest state inside the requestAnimationFrame closure
   const healthRef = useRef(health);
   healthRef.current = health;
   const gameOverRef = useRef(gameOver);
   gameOverRef.current = gameOver;
 
-  // Fetch High Scores on load
+  useEffect(() => {
+    if (!hasAutoTurret) return;
+
+    const turretInterval = setInterval(() => {
+      if (gameOverRef.current) return;
+      if (enemiesRef.current.length > 0) {
+
+        const randomIndex = Math.floor(Math.random() * enemiesRef.current.length);
+        enemiesRef.current.splice(randomIndex, 1);
+
+        setScore((prev) => prev+(100*scoreMultiplier));
+        setCredits((prev) => prev+10);
+      }
+    }, 4000);
+
+    return () => clearInterval(turretInterval);
+  }, [hasAutoTurret, scoreMultiplier]);
+
   useEffect(() => {
     fetch('http://localhost:5000/api/scores')
       .then((res) => res.json())
@@ -41,7 +58,7 @@ export default function TerminalGame() {
 
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.code == 'Space' && empCharges > 0 && !gameOver ) {
+      if (e.code === 'Space' && empCharges > 0 && !gameOver) {
         e.preventDefault();
         triggerEmp();
       }
@@ -52,7 +69,7 @@ export default function TerminalGame() {
   }, [empCharges, gameOver]);
 
   const triggerEmp = () => {
-    setEmpCharges((prev) => prev-1);
+    setEmpCharges((prev) => prev - 1);
     setIsEmpActive(true);
 
     enemiesRef.current = [];
@@ -62,7 +79,6 @@ export default function TerminalGame() {
     }, 300);
   };
 
-  // Game Loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -73,7 +89,6 @@ export default function TerminalGame() {
     const gameLoop = () => {
       if (gameOverRef.current) return;
 
-      // Clear canvas
       ctx.fillStyle = '#0a0a0c';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -82,7 +97,6 @@ export default function TerminalGame() {
         ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
 
-      // Draw Grid Line Accents
       ctx.strokeStyle = '#1e293b';
       ctx.lineWidth = 1;
       for (let x = 0; x < canvas.width; x += 40) {
@@ -92,7 +106,6 @@ export default function TerminalGame() {
         ctx.stroke();
       }
 
-      // Draw Firewall Danger Zone Line
       ctx.strokeStyle = '#ef4444';
       ctx.lineWidth = 3;
       ctx.beginPath();
@@ -100,7 +113,6 @@ export default function TerminalGame() {
       ctx.lineTo(canvas.width, canvas.height - 40);
       ctx.stroke();
 
-      // Spawn Enemy Bugs
       spawnTimer++;
       const spawnRate = Math.max(30, 120 - wave * 10);
       if (spawnTimer >= spawnRate) {
@@ -115,33 +127,36 @@ export default function TerminalGame() {
         });
       }
 
-      // Move & Draw Enemies
       enemiesRef.current.forEach((enemy, index) => {
-        enemy.y += enemy.speed;
+        const speedModifier = isSloMoActive ? 0.4 : 1.0;
+        enemy.y += enemy.speed * speedModifier;
 
-        // Render Enemy Box
         ctx.fillStyle = '#1e1b18';
         ctx.strokeStyle = '#dc2626';
         ctx.lineWidth = 2;
         ctx.fillRect(enemy.x, enemy.y, 110, 30);
         ctx.strokeRect(enemy.x, enemy.y, 110, 30);
 
-        // Render Text
         ctx.fillStyle = '#f87171';
         ctx.font = 'bold 12px "Courier New", monospace';
         ctx.textAlign = 'center';
         ctx.fillText(enemy.word, enemy.x + 55, enemy.y + 19);
 
-        // Check Firewall Breach
         if (enemy.y >= canvas.height - 40) {
           enemiesRef.current.splice(index, 1);
-          setHealth((prev) => {
-            const nextHealth = prev - 15;
-            if (nextHealth <= 0) {
-              setGameOver(true);
-            }
-            return Math.max(0, nextHealth);
-          });
+
+          if (hasShield) {
+            setHasShield(false);
+            alert('🛡️ Firewall Shield absorbed the breach! Shield offline.');
+          } else {
+            setHealth((prev) => {
+              const nextHealth = prev - 15;
+              if (nextHealth <= 0) {
+                setGameOver(true);
+              }
+              return Math.max(0, nextHealth);
+            });
+          }
         }
       });
 
@@ -152,7 +167,6 @@ export default function TerminalGame() {
     return () => cancelAnimationFrame(requestRef.current);
   }, [wave]);
 
-  // Handle Live Typing
   const handleInputChange = (e) => {
     const value = e.target.value.toUpperCase().trim();
     setTypedInput(value);
@@ -163,39 +177,64 @@ export default function TerminalGame() {
       enemiesRef.current.splice(matchedIndex, 1);
       setTypedInput('');
       setScore((prev) => {
-        const pointsEarned = 100*scoreMultiplier;
+        const pointsEarned = 100 * scoreMultiplier;
         const newScore = prev + pointsEarned;
         if (newScore % 500 === 0) setWave((w) => w + 1);
         return newScore;
       });
-      setCredits((prev) => prev+15);
+      setCredits((prev) => prev + 15);
     }
   };
 
   const handleBuyItem = (itemType) => {
-      if (itemType === 'repair') {
-        if (credits < 50) { alert('Not enough credits!'); return; }
-        if (health >= maxHealth) { alert('Core health is already full!'); return; }
-        setCredits((c) => c - 50);
-        setHealth((h) => Math.min(maxHealth, h + 25));
-      } else if (itemType === 'emp') {
-        if (credits < 100) { alert('Not enough credits!'); return; }
-        setCredits((c) => c - 100);
-        setEmpCharges((e) => e + 1);
-      } else if (itemType === 'multiplier') {
-        if (credits < 150) { alert('Not enough credits!'); return; }
-        setCredits((c) => c - 150);
-        setScoreMultiplier((m) => +(m + 0.5).toFixed(1));
-      }
-    };
+    if (itemType === 'repair') {
+      if (credits < 50) { alert('Not enough credits!'); return; }
+      if (health >= maxHealth) { alert('Core health is already full!'); return; }
+      setCredits((c) => c - 50);
+      setHealth((h) => Math.min(maxHealth, h + 25));
+    } else if (itemType === 'emp') {
+      if (credits < 100) { alert('Not enough credits!'); return; }
+      setCredits((c) => c - 100);
+      setEmpCharges((e) => e + 1);
+    } else if (itemType === 'multiplier') {
+      if (credits < 150) { alert('Not enough credits!'); return; }
+      setCredits((c) => c - 150);
+      setScoreMultiplier((m) => +(m + 0.5).toFixed(1));
+    } else if (itemType === 'shield') {
+      if (credits < 75) { alert('Not enough credits!'); return; }
+      if (hasShield) { alert('Shield generator is already active!'); return; }
+      setCredits((c) => c - 75);
+      setHasShield(true);
+    } else if (itemType === 'slomo') {
+      if (credits < 120) { alert('Not enough credits!'); return; }
+      if (isSloMoActive) { alert('Slomo is already Active!'); return; }
+      setCredits((c) => c - 120);
+      setIsSloMoActive(true);
+      setTimeout(() => {
+      setIsSloMoActive(false);
+      }, 8000);
+    } else if (itemType == 'autoturret') {
+      if (credits<160) {alert('Not enough credits!'); return;}
+      if (hasAutoTurret) {alert('Auto Turret is already deployed'); return;}
+      setCredits((c) => c-160);
+      setHasAutoTurret(true);
+    }
+  };
 
   const handleRestart = () => {
     enemiesRef.current = [];
     setScore(0);
     setHealth(100);
+    setMaxHealth(100);
     setWave(1);
     setTypedInput('');
     setGameOver(false);
+    setEmpCharges(3);
+    setCredits(0);
+    setScoreMultiplier(1);
+    setHasShield(false);
+    setIsSloMoActive(false);
+    setHasAutoTurret(false);
   };
 
   return (
@@ -206,7 +245,8 @@ export default function TerminalGame() {
           <span>CORE HEALTH: <b style={{ color: health > 30 ? '#22c55e' : '#ef4444' }}>{health}%</b></span>
           <span>SCORE: <b style={{ color: '#f59e0b' }}>{score}</b></span>
           <span>WAVE: <b style={{ color: '#3b82f6' }}>{wave}</b></span>
-          <span>EMP BLASTS: <b style={{color: '#38bdf8' }}>{empCharges} [SPACEBAR]</b></span>
+          <span>EMP BLASTS: <b style={{ color: '#38bdf8' }}>{empCharges} [SPACEBAR]</b></span>
+          <span>SHIELD: <b style={{ color: hasShield ? '#38bdf8' : '#94a3b8' }}>{hasShield ? 'ONLINE🛡️' : 'OFFLINE'}</b></span>
         </div>
       </header>
 
@@ -247,6 +287,64 @@ export default function TerminalGame() {
           ))}
         </ul>
       </div>
+
+      <div style={styles.shopContainer}>
+        <h4 style={styles.shopTitle}>🛒 BLACK-MARKET UPGRADES <span style={styles.creditBadge}>[{credits} CR]</span></h4>
+        <div style={styles.shopGrid}>
+          <button onClick={() => handleBuyItem('repair')} style={styles.shopBtn}>
+            🔧 Repair Core <span style={styles.priceTag}>[50c]</span>
+          </button>
+          <button onClick={() => handleBuyItem('multiplier')} style={styles.shopBtn}>
+            🚀 Overclock <span style={styles.priceTag}>[150c]</span>
+          </button>
+          <button onClick={() => handleBuyItem('emp')} style={styles.shopBtn}>
+            ⚡ Restock EMP <span style={styles.priceTag}>[100c]</span>
+          </button>
+          <button 
+            onClick={() => handleBuyItem('shield')} 
+            disabled={hasShield}
+            style={{
+              ...styles.shopBtn,
+              background: hasShield ? '#1e293b' : '#0284c7',
+              borderColor: hasShield ? '#334155' : '#0369a1',
+              color: hasShield ? '#64748b' : '#fffbf5',
+              cursor: hasShield ? 'not-allowed' : 'pointer',
+              boxShadow: hasShield ? 'none' : '0 3px 0 #0369a1'
+            }}
+          >
+            🛡️ {hasShield ? 'Shield Active' : 'Energy Shield'} <span style={{ ...styles.priceTag, color: hasShield ? '#64748b' : '#fef08a' }}>{hasShield ? '' : '[75c]'}</span>
+          </button>
+          <button 
+            onClick={() => handleBuyItem('slomo')} 
+            disabled={isSloMoActive}
+            style={{
+              ...styles.shopBtn,
+              gridColumn: 'span 2',
+              background: isSloMoActive ? '#1e293b' : '#7c3aed',
+              borderColor: isSloMoActive ? '#334155' : '#6d28d9',
+              color: isSloMoActive ? '#64748b' : '#fffbf5',
+              cursor: isSloMoActive ? 'not-allowed' : 'pointer',
+              boxShadow: isSloMoActive ? 'none' : '0 3px 0 #6d28d9'
+            }}
+          >
+            ⏳ {isSloMoActive ? 'Time Dilation Active' : 'Time Dilation'} <span style={{ ...styles.priceTag, color: isSloMoActive ? '#64748b' : '#fef08a' }}>{isSloMoActive ? '' : '[120c]'}</span>
+          </button>
+          <button
+            onClick = {() => handleBuyItem('autoturret')}
+            disabled = {hasAutoTurret}
+            style = {{
+              ...styles.shopBtn,
+              background: hasAutoTurret ? '#1e293b' : '#059669',
+              borderColor: hasAutoTurret ? '#334155' : '#047857',
+              color: hasAutoTurret ? '#334155' : '#fffbf5',
+              cursor: hasAutoTurret ? 'not-allowed' : 'pointer',
+              boxShadow: hasAutoTurret ? 'none' : '0 3px 0 #047857'
+            }}
+          >
+            🤖 {hasAutoTurret ? 'Turret Deployed' : 'Auto-Turret'} <span style={{ ...styles.priceTag, color: hasAutoTurret ? '#64748b' : '#fef08a' }}>{hasAutoTurret ? '' : '[160c]'}</span>
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -285,5 +383,60 @@ const styles = {
   leaderboard: {
     marginTop: '20px', width: '500px', background: '#1e1b18',
     padding: '12px', borderRadius: '6px', border: '1px solid #334155'
+  },
+  shopContainer: {
+    marginTop: '16px',
+    width: '500px',
+    background: '#121118',
+    padding: '16px',
+    borderRadius: '8px',
+    border: '2px solid #d97706',
+    boxSizing: 'border-box',
+    boxShadow: '0 4px 20px rgba(217, 119, 6, 0.15)'
+  },
+  shopTitle: { 
+    margin: '0 0 12px 0', 
+    color: '#fbbf24', 
+    fontSize: '13px', 
+    letterSpacing: '0.5px',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center'
+  },
+  creditBadge: {
+    color: '#34d399',
+    background: '#064e3b',
+    padding: '2px 6px',
+    borderRadius: '4px',
+    fontSize: '11px',
+    border: '1px solid #059669'
+  },
+  shopGrid: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: '10px'
+  },
+  shopBtn: {
+    background: '#b45309',
+    color: '#fffbf5',
+    border: '2px solid #92400e',
+    borderRadius: '6px',
+    padding: '10px 12px',
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    fontSize: '12px',
+    width: '100%',
+    boxSizing: 'border-box',
+    boxShadow: '0 3px 0 #78350f',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    transition: 'all 0.1s ease'
+  },
+  priceTag: {
+    color: '#fef08a',
+    fontSize: '11px',
+    fontWeight: 'normal'
   }
 };
