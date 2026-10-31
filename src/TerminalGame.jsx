@@ -8,13 +8,13 @@ const ENEMY_TYPES = {
 
 const playSound = (type) => {
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext) ();
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain);
     gain.connect(ctx.destination);
 
-    if (type == 'type') {
+    if (type === 'type') {
       osc.frequency.setValueAtTime(800, ctx.currentTime);
       gain.gain.setValueAtTime(0.05, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
@@ -25,6 +25,13 @@ const playSound = (type) => {
       osc.frequency.exponentialRampToValueAtTime(800, ctx.currentTime + 0.15);
       gain.gain.setValueAtTime(0.1, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.15);
+    } else if (type === 'hit') {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(150, ctx.currentTime);
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
       osc.start();
       osc.stop(ctx.currentTime + 0.2);
     }
@@ -46,10 +53,11 @@ export default function TerminalGame() {
   const [hasShield, setHasShield] = useState(false);
   const [isSloMoActive, setIsSloMoActive] = useState(false);
   const [hasAutoTurret, setHasAutoTurret] = useState(false);
+  const [hasCollector, setHasCollector] = useState(false);
   const [combo, setCombo] = useState(0);
   const [bossData, setBossData] = useState(null);
   const [isBossActive, setIsBossActive] = useState(false);
-  const [hasCollector, setHasCollector] = useState(false);
+  const [hasRegen, setHasRegen] = useState(false);
 
   const canvasRef = useRef(null);
   const enemiesRef = useRef([]);
@@ -67,20 +75,30 @@ export default function TerminalGame() {
   isBossActiveRef.current = isBossActive;
 
   useEffect(() => {
-    if (!hasCollector) return;
-      const collectorInterval = setInterval(() => {
-        if (gameOverRef.current) return;
-        setCredits((prev) => prev+5);
-      }, 3000);
-      return() => clearInterval(collecterInterval);
-    }, [hasCollector]);
+    if (!hasRegen) {return;}
+
+    const regenInterval = setInterval(() => {
+      if (gameOverRef.current) {return;}
+      setHealth((h) => Math.min(maxHealth, h+2));
+    }, 5000);
+    return () => clearInterval(regenInterval);
+  }, [hasRegen, maxHealth]);
 
   useEffect(() => {
-    fetch('http://localhost:5000/api/scores')
-      .then((res) => res.json())
-      .then((data) => setHighScores(data))
-      .catch(() => console.log('Offline mode active - local scores only'));
+    const saved = localStorage.getItem('cyber_high_scores');
+    if (saved) {
+      setHighScores(JSON.parse(saved));
+    }
   }, []);
+
+  useEffect(() => {
+    if (gameOver) {
+      const newEntry = { player: 'PLAYER_01', score, wave };
+      const updated = [...highScores, newEntry].sort((a, b) => b.score - a.score).slice(0, 5);
+      setHighScores(updated);
+      localStorage.setItem('cyber_high_scores', JSON.stringify(updated));
+    }
+  }, [gameOver]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -98,6 +116,7 @@ export default function TerminalGame() {
     setEmpCharges((prev) => prev - 1);
     setIsEmpActive(true);
     enemiesRef.current = [];
+    playSound('hit');
 
     setTimeout(() => {
       setIsEmpActive(false);
@@ -112,6 +131,7 @@ export default function TerminalGame() {
       if (enemiesRef.current.length > 0) {
         const randomIndex = Math.floor(Math.random() * enemiesRef.current.length);
         enemiesRef.current.splice(randomIndex, 1);
+        playSound('type');
         setScore((prev) => prev + (100 * scoreMultiplier));
         setCredits((prev) => prev + 10);
       }
@@ -119,6 +139,17 @@ export default function TerminalGame() {
 
     return () => clearInterval(turretInterval);
   }, [hasAutoTurret, scoreMultiplier]);
+
+  useEffect(() => {
+    if (!hasCollector) return;
+
+    const collectorInterval = setInterval(() => {
+      if (gameOverRef.current) return;
+      setCredits((prev) => prev + 5);
+    }, 3000);
+
+    return () => clearInterval(collectorInterval);
+  }, [hasCollector]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -221,6 +252,7 @@ export default function TerminalGame() {
           setCombo(0);
           setHealth(0);
           setGameOver(true);
+          playSound('hit');
         }
       }
 
@@ -274,18 +306,16 @@ export default function TerminalGame() {
 
     requestRef.current = requestAnimationFrame(gameLoop);
     return () => cancelAnimationFrame(requestRef.current);
-  }, [wave]);
+  }, [wave, hasShield]);
 
   const handleInputChange = (e) => {
     const value = e.target.value.toUpperCase().trim();
     setTypedInput(value);
 
-    const baseCredits = 15;
-    const creditMultiplier = hasCollector ? 2:1;
-
     if (isBossActive && bossData) {
       const activeWord = bossData.words[bossData.currentIndex];
       if (activeWord === value) {
+        playSound('type');
         setTypedInput('');
         if (bossData.currentIndex + 1 < bossData.words.length) {
           setBossData((prev) => ({ ...prev, currentIndex: prev.currentIndex + 1 }));
@@ -295,6 +325,7 @@ export default function TerminalGame() {
           setScore((prev) => prev + (500 * scoreMultiplier));
           setCredits((prev) => prev + 100);
           setWave((w) => w + 1);
+          playSound('buy');
         }
         return;
       }
@@ -305,6 +336,7 @@ export default function TerminalGame() {
     if (matchedIndex !== -1) {
       enemiesRef.current.splice(matchedIndex, 1);
       setTypedInput('');
+      playSound('type');
       
       const newCombo = combo + 1;
       setCombo(newCombo);
@@ -317,14 +349,10 @@ export default function TerminalGame() {
         return newScore;
       });
 
+      const baseCredits = 15;
+      const creditMultiplier = hasCollector ? 2 : 1;
       const creditsEarned = Math.round(baseCredits * streakBonus * creditMultiplier);
-      setCredits((prev) => (prev + creditsEarned));
-
-      if (matchedIndex !== -1) {
-        enemiesRef.current.splice(matchedIndex, 1);
-        setTypedInput('');
-        playSound('type');
-      }
+      setCredits((prev) => prev + creditsEarned);
     }
   };
 
@@ -366,11 +394,18 @@ export default function TerminalGame() {
       if (hasAutoTurret) { alert('Auto-Turret is already deployed!'); return; }
       setCredits((c) => c - 160);
       setHasAutoTurret(true);
+      playSound('buy');
     } else if (itemType === 'collector') {
-      if (credits<140) {alert('Not enough credits!'); return; }
-      if (hasCollector) {return;}
-      setCredits((c) => c-140);
+      if (credits < 140) { alert('Not enough credits!'); return; }
+      if (hasCollector) { alert('Auto-Loot is already deployed!'); return; }
+      setCredits((c) => c - 140);
       setHasCollector(true);
+      playSound('buy');
+    } else if (itemType == 'regen') {
+      if (credits < 200) {alert('Not enough credits!'); return;}
+      if (hasRegen) {alert('You are already using regen!'); return;}
+      setCredits((c) => c-200);
+      setHasRegen(true);
       playSound('buy');
     }
   };
@@ -389,9 +424,12 @@ export default function TerminalGame() {
     setHasShield(false);
     setIsSloMoActive(false);
     setHasAutoTurret(false);
+    setHasCollector(false);
     setCombo(0);
     setIsBossActive(false);
     setBossData(null);
+    playSound('buy');
+    setHasRegen(false);
   };
 
   return (
@@ -408,7 +446,12 @@ export default function TerminalGame() {
         </div>
       </header>
 
-      <div style={styles.canvasContainer}>
+      <div style={{
+        ...styles.canvasContainer,
+        borderColor: health <= 30 ? '#ef4444' : '#22c55e',
+        boxShadow: health <= 30 ? '0 0 15px rgba(239, 68, 68, 0.6)' : 'none',
+        transition: 'border-color 0.3s ease, box-shadow 0.3s ease'
+      }}>
         <canvas ref={canvasRef} width={500} height={400} style={styles.canvas} />
         
         {gameOver && (
@@ -487,6 +530,33 @@ export default function TerminalGame() {
             🤖 {hasAutoTurret ? 'Turret Deployed' : 'Auto-Turret'} <span style={{ ...styles.priceTag, color: hasAutoTurret ? '#64748b' : '#fef08a' }}>{hasAutoTurret ? '' : '[160c]'}</span>
           </button>
           <button 
+            onClick={() => handleBuyItem('collector')} 
+            disabled={hasCollector}
+            style={{
+              ...styles.shopBtn,
+              background: hasCollector ? '#1e293b' : '#ca8a04',
+              borderColor: hasCollector ? '#334155' : '#a16207',
+              color: hasCollector ? '#64748b' : '#fffbf5',
+              cursor: hasCollector ? 'not-allowed' : 'pointer',
+              boxShadow: hasCollector ? 'none' : '0 3px 0 #a16207'
+            }}
+          >
+            🧲 {hasCollector ? 'Auto-Loot Active' : 'Auto-Loot (2x CR)'} <span style={{ ...styles.priceTag, color: hasCollector ? '#64748b' : '#fef08a' }}>{hasCollector ? '' : '[140c]'}</span>
+          </button>
+          <button
+            onClick={() => handleBuyItem('regen')}
+            style = {{
+              ...styles.shopBtn,
+              background: hasRegen? '#1e293b' : '#15803d',
+              borderColor: hasRegen? '#334155' : '#166534',
+              color: hasRegen? '#64748b' : '#fffbf5',
+              cursor: hasRegen? 'not-allowed' : 'pointer',
+              boxShadow: hasRegen? 'none' : '0 3px 0 #166534'
+            }}
+          >
+            💚 {hasRegen ? 'Regen Active' : 'Overdrive Core'} <span style={{ ...styles.priceTag, color: hasRegen ? '#64748b' : '#fef08a' }}>{hasRegen ? '' : '[200c]'}</span>
+          </button>
+          <button 
             onClick={() => handleBuyItem('slomo')} 
             disabled={isSloMoActive}
             style={{
@@ -500,20 +570,6 @@ export default function TerminalGame() {
             }}
           >
             ⏳ {isSloMoActive ? 'Time Dilation Active' : 'Time Dilation'} <span style={{ ...styles.priceTag, color: isSloMoActive ? '#64748b' : '#fef08a' }}>{isSloMoActive ? '' : '[120c]'}</span>
-          </button>
-          <button
-            onClick = {() => handleBuyItem('collecter')}
-            disabled={hasCollector}
-            style = {{
-              ...styles.shopBtn,
-              background: hasCollector ? '#1e293b' : '#ca8a04',
-              borderColor: hasCollector ? '#334155' : '#a16207',
-              color: hasCollector ? '#64748b' : '#fffbf5',
-              cursor: hasCollector ? 'not-allowed' : 'pointer',
-              boxShadow: hasCollector ? 'none' : '0 3px 0 #a16207'
-            }}
-          >
-            🧲 {hasCollector ? 'Auto-Loot Active' : 'Auto-Loot (2x CR)'} <span style={{ ...styles.priceTag, color: hasCollector ? '#64748b' : '#fef08a' }}>{hasCollector ? '' : '[140c]'}</span>
           </button>
         </div>
       </div>
@@ -598,7 +654,7 @@ const styles = {
     cursor: 'pointer',
     fontFamily: 'inherit',
     fontSize: '12px',
-    width: '100%',  
+    width: '100%',
     boxSizing: 'border-box',
     boxShadow: '0 3px 0 #78350f',
     display: 'flex',
