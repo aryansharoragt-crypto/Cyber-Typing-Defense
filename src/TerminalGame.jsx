@@ -1,10 +1,35 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-const WORD_DICTIONARY = [
-  'VIRUS', 'TROJAN', 'MALWARE', 'EXPLOIT', 'CORRUPT', 
-  'OVERFLOW', 'ROOTKIT', 'SPYWARE', 'PAYLOAD', 'LOGIC_BOMB',
-  'FIREWALL', 'DECRYPT', 'SYN_FLOOD', 'BACKDOOR', 'ZERO_DAY'
-];
+const ENEMY_TYPES = {
+  normal: ['VIRUS', 'TROJAN', 'MALWARE', 'EXPLOIT', 'CORRUPT', 'ROOTKIT', 'SPYWARE', 'PAYLOAD'],
+  fast: ['BUG', 'WORM', 'BOT', 'PING', 'SYNC', 'HACK'],
+  heavy: ['VULNERABILITY', 'BACKDOOR_ACCESS', 'ZERO_DAY_EXPLOIT', 'BUFFER_OVERFLOW']
+};
+
+const playSound = (type) => {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext) ();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    if (type == 'type') {
+      osc.frequency.setValueAtTime(800, ctx.currentTime);
+      gain.gain.setValueAtTime(0.05, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.08);
+    } else if (type === 'buy') {
+      osc.frequency.setValueAtTime(400, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(800, ctx.currentTime + 0.15);
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.2);
+    }
+  } catch (e) {}
+};
 
 export default function TerminalGame() {
   const [typedInput, setTypedInput] = useState('');
@@ -21,6 +46,10 @@ export default function TerminalGame() {
   const [hasShield, setHasShield] = useState(false);
   const [isSloMoActive, setIsSloMoActive] = useState(false);
   const [hasAutoTurret, setHasAutoTurret] = useState(false);
+  const [combo, setCombo] = useState(0);
+  const [bossData, setBossData] = useState(null);
+  const [isBossActive, setIsBossActive] = useState(false);
+  const [hasCollector, setHasCollector] = useState(false);
 
   const canvasRef = useRef(null);
   const enemiesRef = useRef([]);
@@ -30,24 +59,21 @@ export default function TerminalGame() {
   healthRef.current = health;
   const gameOverRef = useRef(gameOver);
   gameOverRef.current = gameOver;
+  const comboRef = useRef(combo);
+  comboRef.current = combo;
+  const bossDataRef = useRef(bossData);
+  bossDataRef.current = bossData;
+  const isBossActiveRef = useRef(isBossActive);
+  isBossActiveRef.current = isBossActive;
 
   useEffect(() => {
-    if (!hasAutoTurret) return;
-
-    const turretInterval = setInterval(() => {
-      if (gameOverRef.current) return;
-      if (enemiesRef.current.length > 0) {
-
-        const randomIndex = Math.floor(Math.random() * enemiesRef.current.length);
-        enemiesRef.current.splice(randomIndex, 1);
-
-        setScore((prev) => prev+(100*scoreMultiplier));
-        setCredits((prev) => prev+10);
-      }
-    }, 4000);
-
-    return () => clearInterval(turretInterval);
-  }, [hasAutoTurret, scoreMultiplier]);
+    if (!hasCollector) return;
+      const collectorInterval = setInterval(() => {
+        if (gameOverRef.current) return;
+        setCredits((prev) => prev+5);
+      }, 3000);
+      return() => clearInterval(collecterInterval);
+    }, [hasCollector]);
 
   useEffect(() => {
     fetch('http://localhost:5000/api/scores')
@@ -71,13 +97,28 @@ export default function TerminalGame() {
   const triggerEmp = () => {
     setEmpCharges((prev) => prev - 1);
     setIsEmpActive(true);
-
     enemiesRef.current = [];
 
     setTimeout(() => {
       setIsEmpActive(false);
     }, 300);
   };
+
+  useEffect(() => {
+    if (!hasAutoTurret) return;
+
+    const turretInterval = setInterval(() => {
+      if (gameOverRef.current) return;
+      if (enemiesRef.current.length > 0) {
+        const randomIndex = Math.floor(Math.random() * enemiesRef.current.length);
+        enemiesRef.current.splice(randomIndex, 1);
+        setScore((prev) => prev + (100 * scoreMultiplier));
+        setCredits((prev) => prev + 10);
+      }
+    }, 4000);
+
+    return () => clearInterval(turretInterval);
+  }, [hasAutoTurret, scoreMultiplier]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -117,33 +158,101 @@ export default function TerminalGame() {
       const spawnRate = Math.max(30, 120 - wave * 10);
       if (spawnTimer >= spawnRate) {
         spawnTimer = 0;
-        const randomWord = WORD_DICTIONARY[Math.floor(Math.random() * WORD_DICTIONARY.length)];
-        enemiesRef.current.push({
-          id: Date.now() + Math.random(),
-          word: randomWord,
-          x: Math.random() * (canvas.width - 120) + 20,
-          y: 0,
-          speed: 0.8 + wave * 0.2
-        });
+
+        if (wave % 5 === 0 && !isBossActiveRef.current && enemiesRef.current.length === 0) {
+          setIsBossActive(true);
+          setBossData({
+            name: `MAINFRAME_OVERLORD_W${wave}`,
+            words: ['KERNEL_PANIC', 'FIREWALL_BREACH', 'ROOT_ACCESS'],
+            currentIndex: 0,
+            y: 0,
+            speed: 0.4 + (wave * 0.1)
+          });
+        } else if (!isBossActiveRef.current) {
+          let type = 'normal';
+          let speedMultiplier = 1.0;
+          const rand = Math.random();
+
+          if (wave >= 2 && rand < 0.25) {
+            type = 'fast';
+            speedMultiplier = 1.8;
+          } else if (wave >= 3 && rand > 0.85) {
+            type = 'heavy';
+            speedMultiplier = 0.5;
+          }
+
+          const dictionary = ENEMY_TYPES[type];
+          const randomWord = dictionary[Math.floor(Math.random() * dictionary.length)];
+
+          enemiesRef.current.push({
+            id: Date.now() + Math.random(),
+            word: randomWord,
+            type: type,
+            x: Math.random() * (canvas.width - 160) + 20,
+            y: 0,
+            speed: (0.8 + wave * 0.2) * speedMultiplier
+          });
+        }
+      }
+
+      if (isBossActive && bossDataRef.current) {
+        const boss = bossDataRef.current;
+        boss.y += boss.speed * (isSloMoActive ? 0.4 : 1.0);
+
+        ctx.fillStyle = '#450a0a';
+        ctx.strokeStyle = '#ef4444';
+        ctx.lineWidth = 4;
+        ctx.fillRect(50, boss.y, canvas.width - 100, 60);
+        ctx.strokeRect(50, boss.y, canvas.width - 100, 60);
+
+        ctx.fillStyle = '#f87171';
+        ctx.font = 'bold 14px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(`🚨 BOSS: ${boss.name}`, canvas.width / 2, boss.y + 22);
+
+        const activeWord = boss.words[boss.currentIndex];
+        ctx.fillStyle = '#fef08a';
+        ctx.font = 'bold 16px "Courier New", monospace';
+        ctx.fillText(`TYPE NEXT: [ ${activeWord} ]`, canvas.width / 2, boss.y + 45);
+
+        if (boss.y >= canvas.height - 70) {
+          setIsBossActive(false);
+          setBossData(null);
+          setCombo(0);
+          setHealth(0);
+          setGameOver(true);
+        }
       }
 
       enemiesRef.current.forEach((enemy, index) => {
         const speedModifier = isSloMoActive ? 0.4 : 1.0;
         enemy.y += enemy.speed * speedModifier;
 
-        ctx.fillStyle = '#1e1b18';
-        ctx.strokeStyle = '#dc2626';
-        ctx.lineWidth = 2;
-        ctx.fillRect(enemy.x, enemy.y, 110, 30);
-        ctx.strokeRect(enemy.x, enemy.y, 110, 30);
+        const boxWidth = enemy.type === 'heavy' ? 150 : 110;
 
-        ctx.fillStyle = '#f87171';
-        ctx.font = 'bold 12px "Courier New", monospace';
+        if (enemy.type === 'fast') {
+          ctx.fillStyle = '#082f49';
+          ctx.strokeStyle = '#0ea5e9';
+        } else if (enemy.type === 'heavy') {
+          ctx.fillStyle = '#3b0764';
+          ctx.strokeStyle = '#a855f7';
+        } else {
+          ctx.fillStyle = '#1e1b18';
+          ctx.strokeStyle = '#dc2626';
+        }
+        ctx.lineWidth = 2;
+        ctx.fillRect(enemy.x, enemy.y, boxWidth, 30);
+        ctx.strokeRect(enemy.x, enemy.y, boxWidth, 30);
+
+        ctx.fillStyle = enemy.type === 'fast' ? '#38bdf8' : (enemy.type === 'heavy' ? '#d8b4fe' : '#f87171');
+        ctx.font = 'bold 11px "Courier New", monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(enemy.word, enemy.x + 55, enemy.y + 19);
+        ctx.fillText(enemy.word, enemy.x + boxWidth / 2, enemy.y + 19);
 
         if (enemy.y >= canvas.height - 40) {
           enemiesRef.current.splice(index, 1);
+          setCombo(0);
+          playSound('hit');
 
           if (hasShield) {
             setHasShield(false);
@@ -171,18 +280,51 @@ export default function TerminalGame() {
     const value = e.target.value.toUpperCase().trim();
     setTypedInput(value);
 
+    const baseCredits = 15;
+    const creditMultiplier = hasCollector ? 2:1;
+
+    if (isBossActive && bossData) {
+      const activeWord = bossData.words[bossData.currentIndex];
+      if (activeWord === value) {
+        setTypedInput('');
+        if (bossData.currentIndex + 1 < bossData.words.length) {
+          setBossData((prev) => ({ ...prev, currentIndex: prev.currentIndex + 1 }));
+        } else {
+          setIsBossActive(false);
+          setBossData(null);
+          setScore((prev) => prev + (500 * scoreMultiplier));
+          setCredits((prev) => prev + 100);
+          setWave((w) => w + 1);
+        }
+        return;
+      }
+    }
+
     const matchedIndex = enemiesRef.current.findIndex((enemy) => enemy.word === value);
 
     if (matchedIndex !== -1) {
       enemiesRef.current.splice(matchedIndex, 1);
       setTypedInput('');
+      
+      const newCombo = combo + 1;
+      setCombo(newCombo);
+      const streakBonus = 1 + (newCombo * 0.1);
+
       setScore((prev) => {
-        const pointsEarned = 100 * scoreMultiplier;
+        const pointsEarned = Math.round(100 * scoreMultiplier * streakBonus);
         const newScore = prev + pointsEarned;
         if (newScore % 500 === 0) setWave((w) => w + 1);
         return newScore;
       });
-      setCredits((prev) => prev + 15);
+
+      const creditsEarned = Math.round(baseCredits * streakBonus * creditMultiplier);
+      setCredits((prev) => (prev + creditsEarned));
+
+      if (matchedIndex !== -1) {
+        enemiesRef.current.splice(matchedIndex, 1);
+        setTypedInput('');
+        playSound('type');
+      }
     }
   };
 
@@ -192,32 +334,44 @@ export default function TerminalGame() {
       if (health >= maxHealth) { alert('Core health is already full!'); return; }
       setCredits((c) => c - 50);
       setHealth((h) => Math.min(maxHealth, h + 25));
+      playSound('buy');
     } else if (itemType === 'emp') {
       if (credits < 100) { alert('Not enough credits!'); return; }
       setCredits((c) => c - 100);
       setEmpCharges((e) => e + 1);
+      playSound('buy');
     } else if (itemType === 'multiplier') {
       if (credits < 150) { alert('Not enough credits!'); return; }
       setCredits((c) => c - 150);
       setScoreMultiplier((m) => +(m + 0.5).toFixed(1));
+      playSound('buy');
     } else if (itemType === 'shield') {
       if (credits < 75) { alert('Not enough credits!'); return; }
       if (hasShield) { alert('Shield generator is already active!'); return; }
       setCredits((c) => c - 75);
       setHasShield(true);
+      playSound('buy');
     } else if (itemType === 'slomo') {
       if (credits < 120) { alert('Not enough credits!'); return; }
       if (isSloMoActive) { alert('Slomo is already Active!'); return; }
       setCredits((c) => c - 120);
       setIsSloMoActive(true);
+      playSound('buy');
+
       setTimeout(() => {
-      setIsSloMoActive(false);
+        setIsSloMoActive(false);
       }, 8000);
-    } else if (itemType == 'autoturret') {
-      if (credits<160) {alert('Not enough credits!'); return;}
-      if (hasAutoTurret) {alert('Auto Turret is already deployed'); return;}
-      setCredits((c) => c-160);
+    } else if (itemType === 'autoturret') {
+      if (credits < 160) { alert('Not enough credits!'); return; }
+      if (hasAutoTurret) { alert('Auto-Turret is already deployed!'); return; }
+      setCredits((c) => c - 160);
       setHasAutoTurret(true);
+    } else if (itemType === 'collector') {
+      if (credits<140) {alert('Not enough credits!'); return; }
+      if (hasCollector) {return;}
+      setCredits((c) => c-140);
+      setHasCollector(true);
+      playSound('buy');
     }
   };
 
@@ -229,12 +383,15 @@ export default function TerminalGame() {
     setWave(1);
     setTypedInput('');
     setGameOver(false);
-    setEmpCharges(3);
+    setEmpCharges(2);
     setCredits(0);
     setScoreMultiplier(1);
     setHasShield(false);
     setIsSloMoActive(false);
     setHasAutoTurret(false);
+    setCombo(0);
+    setIsBossActive(false);
+    setBossData(null);
   };
 
   return (
@@ -244,6 +401,7 @@ export default function TerminalGame() {
         <div style={styles.statsBar}>
           <span>CORE HEALTH: <b style={{ color: health > 30 ? '#22c55e' : '#ef4444' }}>{health}%</b></span>
           <span>SCORE: <b style={{ color: '#f59e0b' }}>{score}</b></span>
+          <span>STREAK: <b style={{ color: combo > 5 ? '#f43f5e' : '#eab308' }}>{combo}x 🔥</b></span>
           <span>WAVE: <b style={{ color: '#3b82f6' }}>{wave}</b></span>
           <span>EMP BLASTS: <b style={{ color: '#38bdf8' }}>{empCharges} [SPACEBAR]</b></span>
           <span>SHIELD: <b style={{ color: hasShield ? '#38bdf8' : '#94a3b8' }}>{hasShield ? 'ONLINE🛡️' : 'OFFLINE'}</b></span>
@@ -315,6 +473,20 @@ export default function TerminalGame() {
             🛡️ {hasShield ? 'Shield Active' : 'Energy Shield'} <span style={{ ...styles.priceTag, color: hasShield ? '#64748b' : '#fef08a' }}>{hasShield ? '' : '[75c]'}</span>
           </button>
           <button 
+            onClick={() => handleBuyItem('autoturret')} 
+            disabled={hasAutoTurret}
+            style={{
+              ...styles.shopBtn,
+              background: hasAutoTurret ? '#1e293b' : '#059669',
+              borderColor: hasAutoTurret ? '#334155' : '#047857',
+              color: hasAutoTurret ? '#64748b' : '#fffbf5',
+              cursor: hasAutoTurret ? 'not-allowed' : 'pointer',
+              boxShadow: hasAutoTurret ? 'none' : '0 3px 0 #047857'
+            }}
+          >
+            🤖 {hasAutoTurret ? 'Turret Deployed' : 'Auto-Turret'} <span style={{ ...styles.priceTag, color: hasAutoTurret ? '#64748b' : '#fef08a' }}>{hasAutoTurret ? '' : '[160c]'}</span>
+          </button>
+          <button 
             onClick={() => handleBuyItem('slomo')} 
             disabled={isSloMoActive}
             style={{
@@ -330,18 +502,18 @@ export default function TerminalGame() {
             ⏳ {isSloMoActive ? 'Time Dilation Active' : 'Time Dilation'} <span style={{ ...styles.priceTag, color: isSloMoActive ? '#64748b' : '#fef08a' }}>{isSloMoActive ? '' : '[120c]'}</span>
           </button>
           <button
-            onClick = {() => handleBuyItem('autoturret')}
-            disabled = {hasAutoTurret}
+            onClick = {() => handleBuyItem('collecter')}
+            disabled={hasCollector}
             style = {{
               ...styles.shopBtn,
-              background: hasAutoTurret ? '#1e293b' : '#059669',
-              borderColor: hasAutoTurret ? '#334155' : '#047857',
-              color: hasAutoTurret ? '#334155' : '#fffbf5',
-              cursor: hasAutoTurret ? 'not-allowed' : 'pointer',
-              boxShadow: hasAutoTurret ? 'none' : '0 3px 0 #047857'
+              background: hasCollector ? '#1e293b' : '#ca8a04',
+              borderColor: hasCollector ? '#334155' : '#a16207',
+              color: hasCollector ? '#64748b' : '#fffbf5',
+              cursor: hasCollector ? 'not-allowed' : 'pointer',
+              boxShadow: hasCollector ? 'none' : '0 3px 0 #a16207'
             }}
           >
-            🤖 {hasAutoTurret ? 'Turret Deployed' : 'Auto-Turret'} <span style={{ ...styles.priceTag, color: hasAutoTurret ? '#64748b' : '#fef08a' }}>{hasAutoTurret ? '' : '[160c]'}</span>
+            🧲 {hasCollector ? 'Auto-Loot Active' : 'Auto-Loot (2x CR)'} <span style={{ ...styles.priceTag, color: hasCollector ? '#64748b' : '#fef08a' }}>{hasCollector ? '' : '[140c]'}</span>
           </button>
         </div>
       </div>
@@ -426,7 +598,7 @@ const styles = {
     cursor: 'pointer',
     fontFamily: 'inherit',
     fontSize: '12px',
-    width: '100%',
+    width: '100%',  
     boxSizing: 'border-box',
     boxShadow: '0 3px 0 #78350f',
     display: 'flex',
